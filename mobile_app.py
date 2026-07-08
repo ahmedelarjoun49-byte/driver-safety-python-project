@@ -1,19 +1,24 @@
-import os
 import sys
+import os
 
-# ==============================================================================
-# 🛠️ PROTECTION DE PRODUCTION : BLOCAGE D'OPENCV-CONTRIB
-# ==============================================================================
-# On supprime dynamiquement les chemins d'accès d'opencv-contrib de l'arbre système
-# pour forcer Python à se rabattre exclusivement sur opencv-python-headless.
-for path in list(sys.path):
-    if "cv2" in path or "opencv_contrib" in path:
-        if path in sys.path:
-            sys.path.remove(path)
-
-# On empêche explicitement Qt de chercher un serveur d'affichage X11 (Linux)
+# 1. On force le mode offscreen pour Qt
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-# ==============================================================================
+
+# 2. HACK ABSOLU : Si cv2 essaie de charger son binaire natif complet, 
+# on intercepte l'erreur libGL ou on force le chargement du headless 
+# en nettoyant agressivement sys.modules avant l'appel.
+try:
+    import cv2
+except ImportError as e:
+    if "libGL.so.1" in str(e):
+        # Si la version classique a essayé de se charger et a planté,
+        # on la supprime de la mémoire et on bascule de force sur une simulation ou le headless pur
+        sys.modules.pop("cv2", None)
+        # On force la recherche exclusive dans le sous-dossier headless de site-packages
+        for path in list(sys.path):
+            if "opencv_contrib" in path:
+                sys.path.remove(path)
+        import cv2================================
 
 import streamlit as st
 import cv2  # Chargera proprement la version headless
