@@ -5,12 +5,7 @@ import streamlit as st
 from pathlib import Path
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# Configuration dynamique des chemins pour le serveur Streamlit Cloud
-root_path = Path(__file__).resolve().parent
-sys.path.insert(0, str(root_path))
-sys.path.insert(0, str(root_path / "ai-driver-safety"))
-
-# Imports de ton pipeline d'IA (trouvés grâce aux chemins configurés ci-dessus)
+# Imports directs de ton pipeline d'IA
 from driver_safety.config import DriverSafetyConfig
 from driver_safety.vision.pipeline import DriverSafetyPipeline
 from driver_safety.core.models import FramePacket
@@ -18,7 +13,7 @@ from driver_safety.core.models import FramePacket
 st.set_page_config(page_title="DriveSafe-AI Mobile", layout="centered")
 st.title("🛡️ DriveSafe-AI Live Monitor")
 
-# Configuration STUN pour la connectivité réseau mobile (4G/5G)
+# Configuration des serveurs de connexion pour le réseau mobile (4G/5G)
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
@@ -34,6 +29,7 @@ def load_pipeline():
 
 pipeline = load_pipeline()
 
+# Initialisation de l'état dans la session Streamlit
 if "driver_status" not in st.session_state:
     st.session_state.driver_status = "INITIALISATION"
 
@@ -52,6 +48,7 @@ class MobileDriverProcessor(VideoProcessorBase):
         )
 
         try:
+            # Ton IA analyse l'image ici
             processed = pipeline.process_frame(packet)
             st.session_state.driver_status = processed.state.name
         except Exception:
@@ -59,6 +56,7 @@ class MobileDriverProcessor(VideoProcessorBase):
 
         return frame
 
+# Zone d'affichage du statut sur l'écran du téléphone
 status_placeholder = st.empty()
 
 if st.session_state.driver_status != "ATTENTIVE":
@@ -66,10 +64,11 @@ if st.session_state.driver_status != "ATTENTIVE":
 else:
     status_placeholder.success("✅ CONDUCTEUR ATTENTIF")
 
+# Lancement du flux de la caméra frontale de l'iPhone
 webrtc_streamer(
     key="driver-live-stream",
     video_processor_factory=MobileDriverProcessor,
     rtc_configuration=RTC_CONFIGURATION,
-    media_stream_constraints={"video": {"facingMode": "user"}, "audio": False},
+    media_stream_constraints={"video": {"facingMode": "user"}, "audio": True},
     async_processing=True
 )
