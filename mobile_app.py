@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
 import cv2
 import numpy as np
 import time
