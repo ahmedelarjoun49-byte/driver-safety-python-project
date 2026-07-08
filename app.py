@@ -1,6 +1,6 @@
 import time
-import threading
 import streamlit as st
+
 from streamlit_webrtc import (
     webrtc_streamer,
     VideoProcessorBase,
@@ -12,28 +12,23 @@ from driver_safety.vision.pipeline import DriverSafetyPipeline
 from driver_safety.core.models import FramePacket
 
 
-# -----------------------------
-# Streamlit configuration
-# -----------------------------
 
 st.set_page_config(
-    page_title="DriveSafe-AI Mobile",
+    page_title="DriveSafe AI",
     page_icon="🛡️",
     layout="centered"
 )
 
+
 st.title("🛡️ DriveSafe-AI Live Monitor")
 
 
-# -----------------------------
-# WebRTC configuration
-# -----------------------------
 
 RTC_CONFIGURATION = RTCConfiguration(
     {
-        "iceServers": [
+        "iceServers":[
             {
-                "urls": [
+                "urls":[
                     "stun:stun.l.google.com:19302"
                 ]
             }
@@ -42,9 +37,6 @@ RTC_CONFIGURATION = RTCConfiguration(
 )
 
 
-# -----------------------------
-# Load AI model once
-# -----------------------------
 
 @st.cache_resource
 def load_pipeline():
@@ -56,34 +48,23 @@ def load_pipeline():
     config.thresholds.head_offset = 0.15
     config.thresholds.phone_confidence = 0.50
 
+
     return DriverSafetyPipeline(config)
+
 
 
 pipeline = load_pipeline()
 
 
-# -----------------------------
-# Status storage
-# Thread-safe
-# -----------------------------
 
-if "status" not in st.session_state:
-    st.session_state.status = "INITIALISATION"
+class DriverProcessor(VideoProcessorBase):
 
-
-status_lock = threading.Lock()
-
-
-# -----------------------------
-# Video processor
-# -----------------------------
-
-class MobileDriverProcessor(VideoProcessorBase):
 
     def __init__(self):
 
+        self.status = "INITIALISATION"
         self.frame_index = 0
-        self.current_status = "INITIALISATION"
+
 
 
     def recv(self, frame):
@@ -92,7 +73,9 @@ class MobileDriverProcessor(VideoProcessorBase):
             format="bgr24"
         )
 
+
         self.frame_index += 1
+
 
 
         packet = FramePacket(
@@ -106,67 +89,80 @@ class MobileDriverProcessor(VideoProcessorBase):
 
             result = pipeline.process_frame(packet)
 
-            self.current_status = result.state.name
+            self.status = result.state.name
 
 
         except Exception as e:
 
-            self.current_status = "ERROR"
+            self.status = "ERROR"
+
 
 
         return frame
 
 
 
-# -----------------------------
-# Camera
-# -----------------------------
+
 
 ctx = webrtc_streamer(
+
     key="driver-camera",
 
-    video_processor_factory=MobileDriverProcessor,
+    video_processor_factory=DriverProcessor,
 
     rtc_configuration=RTC_CONFIGURATION,
 
+
     media_stream_constraints={
-        "video": {
-            "facingMode": "user"
+
+        "video":{
+            "facingMode":"user"
         },
-        "audio": False
+
+        "audio":False
     },
 
+
     async_processing=False
+
 )
 
 
 
-# -----------------------------
-# Display status
-# -----------------------------
+status = st.empty()
 
-status_box = st.empty()
 
 
 if ctx.video_processor:
 
-    current = ctx.video_processor.current_status
+
+    current = ctx.video_processor.status
 
 
-    if current != "ATTENTIVE":
 
-        status_box.error(
-            f"🚨 ALERTE : {current}"
+    if current == "ATTENTIVE":
+
+        status.success(
+            "✅ Conducteur attentif"
         )
+
+
+    elif current == "ERROR":
+
+        status.error(
+            "❌ Erreur IA"
+        )
+
 
     else:
 
-        status_box.success(
-            "✅ CONDUCTEUR ATTENTIF"
+        status.warning(
+            f"🚨 {current}"
         )
+
 
 else:
 
-    status_box.info(
+    status.info(
         "📷 Activation caméra..."
     )
