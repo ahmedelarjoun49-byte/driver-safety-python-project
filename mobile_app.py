@@ -1,25 +1,35 @@
-import sys
 import os
+import sys
 
-# TRUC DE PRODUCTION : Supprime les chemins cachés d'opencv classique s'ils existent
-sys.modules.pop("cv2", None)
+# ==============================================================================
+# 🛠️ PROTECTION DE PRODUCTION : BLOCAGE D'OPENCV-CONTRIB
+# ==============================================================================
+# On supprime dynamiquement les chemins d'accès d'opencv-contrib de l'arbre système
+# pour forcer Python à se rabattre exclusivement sur opencv-python-headless.
+for path in list(sys.path):
+    if "cv2" in path or "opencv_contrib" in path:
+        if path in sys.path:
+            sys.path.remove(path)
+
+# On empêche explicitement Qt de chercher un serveur d'affichage X11 (Linux)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
+# ==============================================================================
 
 import streamlit as st
-import cv2  # Maintenant il va importer strictement la version headless du requirements
+import cv2  # Chargera proprement la version headless
 import numpy as np
 import time
 from pathlib import Path
-import sys
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# Alignement des chemins du projet
+# Alignement des chemins du projet pour localiser le cœur de l'IA
 sys.path.append(str(Path(__file__).resolve().parent / "ai-driver-safety"))
 
 from driver_safety.config import DriverSafetyConfig
 from driver_safety.vision.pipeline import DriverSafetyPipeline
 from driver_safety.core.models import FramePacket
 
+# Configuration globale de la page Streamlit
 st.set_page_config(page_title="DriveSafe-AI Mobile", layout="centered")
 
 st.markdown("""
@@ -31,7 +41,7 @@ st.markdown("""
 
 st.title("🛡️ DriveSafe-AI Mobile")
 
-# Configuration des serveurs ICE de Google pour traverser les pare-feux mobiles
+# Configuration des serveurs ICE de Google pour traverser les pare-feux mobiles (3G/4G/5G)
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [
         {"urls": ["stun:stun.l.google.com:19302"]},
@@ -74,7 +84,7 @@ class MobileDriverProcessor(VideoProcessorBase):
         try:
             processed = pipeline.process_frame(packet)
             
-            # Dessiner l'état directement sur la vidéo de l'iPhone
+            # Dessiner l'état directement sur le retour vidéo affiché sur l'iPhone
             if processed.state.name != "ATTENTIVE":
                 cv2.putText(img, f"ATTENTION: {processed.state.name}", (30, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 255), 3)
@@ -86,7 +96,7 @@ class MobileDriverProcessor(VideoProcessorBase):
 
         return frame.from_ndarray(img, format="bgr24")
 
-# Lancement du streamer vidéo natif
+# Lancement du streamer vidéo natif adapté aux smartphones
 webrtc_streamer(
     key="mobile-live-engine",
     video_processor_factory=MobileDriverProcessor,
