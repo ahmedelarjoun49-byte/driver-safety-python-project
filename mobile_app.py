@@ -1,7 +1,12 @@
-import streamlit as st
+import sys
 import os
+
+# TRUC DE PRODUCTION : Supprime les chemins cachés d'opencv classique s'ils existent
+sys.modules.pop("cv2", None)
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-import cv2
+
+import streamlit as st
+import cv2  # Maintenant il va importer strictement la version headless du requirements
 import numpy as np
 import time
 from pathlib import Path
