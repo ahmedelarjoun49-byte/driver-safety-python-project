@@ -1,9 +1,12 @@
 import sys
 from pathlib import Path
 
-sys.path.append(
+# Add AI package path
+sys.path.insert(
+    0,
     str(Path(__file__).parent / "ai-driver-safety")
 )
+
 
 import time
 import streamlit as st
@@ -20,8 +23,12 @@ from driver_safety.core.models import FramePacket
 
 
 
+# -----------------------------
+# Streamlit config
+# -----------------------------
+
 st.set_page_config(
-    page_title="DriveSafe AI",
+    page_title="DriveSafe-AI",
     page_icon="🛡️",
     layout="centered"
 )
@@ -31,11 +38,15 @@ st.title("🛡️ DriveSafe-AI Live Monitor")
 
 
 
+# -----------------------------
+# WebRTC
+# -----------------------------
+
 RTC_CONFIGURATION = RTCConfiguration(
     {
-        "iceServers":[
+        "iceServers": [
             {
-                "urls":[
+                "urls": [
                     "stun:stun.l.google.com:19302"
                 ]
             }
@@ -44,6 +55,10 @@ RTC_CONFIGURATION = RTCConfiguration(
 )
 
 
+
+# -----------------------------
+# Load AI pipeline
+# -----------------------------
 
 @st.cache_resource
 def load_pipeline():
@@ -64,8 +79,11 @@ pipeline = load_pipeline()
 
 
 
-class DriverProcessor(VideoProcessorBase):
+# -----------------------------
+# Video processor
+# -----------------------------
 
+class DriverProcessor(VideoProcessorBase):
 
     def __init__(self):
 
@@ -76,7 +94,7 @@ class DriverProcessor(VideoProcessorBase):
 
     def recv(self, frame):
 
-        img = frame.to_ndarray(
+        image = frame.to_ndarray(
             format="bgr24"
         )
 
@@ -84,9 +102,8 @@ class DriverProcessor(VideoProcessorBase):
         self.frame_index += 1
 
 
-
         packet = FramePacket(
-            frame=img,
+            frame=image,
             timestamp=time.time(),
             frame_index=self.frame_index
         )
@@ -104,12 +121,15 @@ class DriverProcessor(VideoProcessorBase):
             self.status = "ERROR"
 
 
-
         return frame
 
 
 
 
+
+# -----------------------------
+# Camera
+# -----------------------------
 
 ctx = webrtc_streamer(
 
@@ -121,55 +141,54 @@ ctx = webrtc_streamer(
 
 
     media_stream_constraints={
-
-        "video":{
-            "facingMode":"user"
+        "video": {
+            "facingMode": "user"
         },
-
-        "audio":False
+        "audio": False
     },
 
 
     async_processing=False
-
 )
 
 
 
-status = st.empty()
+# -----------------------------
+# Status
+# -----------------------------
+
+status_box = st.empty()
 
 
 
 if ctx.video_processor:
 
-
-    current = ctx.video_processor.status
-
+    status = ctx.video_processor.status
 
 
-    if current == "ATTENTIVE":
+    if status == "ATTENTIVE":
 
-        status.success(
+        status_box.success(
             "✅ Conducteur attentif"
         )
 
 
-    elif current == "ERROR":
+    elif status == "ERROR":
 
-        status.error(
+        status_box.error(
             "❌ Erreur IA"
         )
 
 
     else:
 
-        status.warning(
-            f"🚨 {current}"
+        status_box.warning(
+            f"🚨 {status}"
         )
 
 
 else:
 
-    status.info(
+    status_box.info(
         "📷 Activation caméra..."
     )
