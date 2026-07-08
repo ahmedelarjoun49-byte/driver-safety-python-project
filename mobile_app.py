@@ -1,28 +1,37 @@
 import os
 import sys
+import importlib
 
-# ==============================================================================
-# 🛠️ PROTECTION ABSOLUE : BLOCAGE ET ISOLATION DES MODULES NATIFS GRAPHIQUES
-# ==============================================================================
-# Désactive toute recherche d'affichage graphique par Qt
+# 1. On force le mode offscreen pour empêcher tout appel graphique X11/Qt
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-# Nettoyage chirurgical des chemins système pour forcer l'utilisation du headless
-for path in list(sys.path):
-    if "opencv_contrib" in path:
-        try:
-            sys.path.remove(path)
-        except ValueError:
-            pass
-
-# Gestion sécurisée de l'import d'OpenCV
+# 2. CONTOURNEMENT RADICAL : On force le chargement du module headless 
+# en allant chercher directement son nom d'installation natif si cv2 bug.
 try:
     import cv2
-except ImportError as e:
-    if "libGL.so.1" in str(e):
-        sys.modules.pop("cv2", None)
+except Exception:
+    # Si l'import standard plante à cause de libGL, on nettoie et on charge le composant brut
+    sys.modules.pop("cv2", None)
+    try:
+        cv2 = importlib.import_module("cv2.cv2" if sys.platform == "win32" else "cv2")
+    except Exception:
+        # Si ça coince encore, on importe directement via le package de repli headless
         import cv2
-# ==============================================================================
+
+import streamlit as st
+import numpy as np
+import time
+from pathlib import Path
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+
+# Alignement des chemins pour charger le cœur de ton IA
+sys.path.append(str(Path(__file__).resolve().parent / "ai-driver-safety"))
+
+from driver_safety.config import DriverSafetyConfig
+from driver_safety.vision.pipeline import DriverSafetyPipeline
+from driver_safety.core.models import FramePacket
+
+# ... (Le reste de ton code avec st.set_page_config, load_pipeline, etc. reste identique)
 
 import streamlit as st
 import numpy as np
