@@ -1,40 +1,43 @@
-import sys
 import os
+import sys
 
-# 1. On force le mode offscreen pour Qt
+# ==============================================================================
+# 🛠️ PROTECTION ABSOLUE : BLOCAGE ET ISOLATION DES MODULES NATIFS GRAPHIQUES
+# ==============================================================================
+# Désactive toute recherche d'affichage graphique par Qt
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-# 2. HACK ABSOLU : Si cv2 essaie de charger son binaire natif complet, 
-# on intercepte l'erreur libGL ou on force le chargement du headless 
-# en nettoyant agressivement sys.modules avant l'appel.
+# Nettoyage chirurgical des chemins système pour forcer l'utilisation du headless
+for path in list(sys.path):
+    if "opencv_contrib" in path:
+        try:
+            sys.path.remove(path)
+        except ValueError:
+            pass
+
+# Gestion sécurisée de l'import d'OpenCV
 try:
     import cv2
 except ImportError as e:
     if "libGL.so.1" in str(e):
-        # Si la version classique a essayé de se charger et a planté,
-        # on la supprime de la mémoire et on bascule de force sur une simulation ou le headless pur
         sys.modules.pop("cv2", None)
-        # On force la recherche exclusive dans le sous-dossier headless de site-packages
-        for path in list(sys.path):
-            if "opencv_contrib" in path:
-                sys.path.remove(path)
-        import cv2================================
+        import cv2
+# ==============================================================================
 
 import streamlit as st
-import cv2  # Chargera proprement la version headless
 import numpy as np
 import time
 from pathlib import Path
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# Alignement des chemins du projet pour localiser le cœur de l'IA
+# Alignement des chemins pour charger le cœur de ton IA
 sys.path.append(str(Path(__file__).resolve().parent / "ai-driver-safety"))
 
 from driver_safety.config import DriverSafetyConfig
 from driver_safety.vision.pipeline import DriverSafetyPipeline
 from driver_safety.core.models import FramePacket
 
-# Configuration globale de la page Streamlit
+# Configuration de la page Streamlit
 st.set_page_config(page_title="DriveSafe-AI Mobile", layout="centered")
 
 st.markdown("""
@@ -46,7 +49,7 @@ st.markdown("""
 
 st.title("🛡️ DriveSafe-AI Mobile")
 
-# Configuration des serveurs ICE de Google pour traverser les pare-feux mobiles (3G/4G/5G)
+# Serveurs STUN publics de Google pour traverser le réseau mobile 4G/5G
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [
         {"urls": ["stun:stun.l.google.com:19302"]},
@@ -89,7 +92,7 @@ class MobileDriverProcessor(VideoProcessorBase):
         try:
             processed = pipeline.process_frame(packet)
             
-            # Dessiner l'état directement sur le retour vidéo affiché sur l'iPhone
+            # Affichage dynamique sur le stream vidéo
             if processed.state.name != "ATTENTIVE":
                 cv2.putText(img, f"ATTENTION: {processed.state.name}", (30, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 255), 3)
@@ -101,7 +104,7 @@ class MobileDriverProcessor(VideoProcessorBase):
 
         return frame.from_ndarray(img, format="bgr24")
 
-# Lancement du streamer vidéo natif adapté aux smartphones
+# Streamer WebRTC optimisé pour caméra avant de smartphone
 webrtc_streamer(
     key="mobile-live-engine",
     video_processor_factory=MobileDriverProcessor,
