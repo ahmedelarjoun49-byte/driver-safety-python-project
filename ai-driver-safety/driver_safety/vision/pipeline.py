@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from time import perf_counter
+import requests
+import json
 
 from driver_safety.config import DriverSafetyConfig
 from driver_safety.core.alerts import AlertPolicy
@@ -47,6 +49,37 @@ class DriverSafetyPipeline:
         self._phone_counter = 0
         self._phone_hold_counter = 0
         self._last_phone: ObjectObservation | None = None
+
+        # Custom Cloud Rate Limiting Setup (Standalone Fallback)
+        self._cloud_cooldowns = {}
+        self._cooldown_duration = getattr(config.runtime, "alert_cooldown_seconds", 5)
+
+        # Inline Credentials Configuration
+        self.supabase_url = "https://ybcfbbclcamcccqfkgbi.supabase.co"
+        self.supabase_key = "sb_publishable_gjLy3MxPn4NgPWPsmhk5kQ_E45BAsrU"
+
+    def _send_cloud_alert(self, event_type: str, risk_score: float) -> None:
+        """Self-contained method to stream alerts directly to your database without file dependencies."""
+        url = f"{self.supabase_url}/rest/v1/incidents"
+        headers = {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+        payload = {
+            "driver_name": "Ahmed",
+            "event_type": str(event_type),
+            "risk_index": float(risk_score)
+        }
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            if response.status_code == 201:
+                print(f" [CLOUD LOG] Successfully uploaded alert: {event_type} ({risk_score})")
+            else:
+                print(f" [CLOUD ERROR] Remote database returned code: {response.status_code}")
+        except Exception as e:
+            print(f" [CLOUD FAILED] Network Connection Error: {e}")
 
     def process_frame(self, packet: FramePacket) -> ProcessedFrame:
         started = perf_counter()
@@ -254,7 +287,7 @@ class DriverSafetyPipeline:
         landmarks: list[tuple[float, float]] | None = None,
         metadata: dict[str, float | str] | None = None,
     ) -> DetectionEvent:
-        return DetectionEvent(
+        event = DetectionEvent(
             timestamp=packet.timestamp,
             frame_index=packet.frame_index,
             signal=signal,
@@ -267,6 +300,19 @@ class DriverSafetyPipeline:
             metadata=metadata or {},
         )
 
+        # Standalone Alert Cooldown Validation
+        if state in [DriverState.PHONE_USE, DriverState.DROWSY, DriverState.DISTRACTED]:
+            last_triggered = self._cloud_cooldowns.get(state.name, 0.0)
+            if packet.timestamp - last_triggered >= self._cooldown_duration:
+                self._cloud_cooldowns[state.name] = packet.timestamp
+                clean_event_name = "PHONE_USE" if state == DriverState.PHONE_USE else state.name
+                self._send_cloud_alert(event_type=clean_event_name, risk_score=score)
+
+        return event
+
 
 def create_pipeline(config: DriverSafetyConfig | None = None) -> DriverSafetyPipeline:
-    return DriverSafetyPipeline(config or DriverSafetyConfig())
+    """Factory helper function to safely generate an operational pipeline."""
+    if config is None:
+        raise ValueError("A valid DriverSafetyConfig configuration instance must be supplied.")
+    return DriverSafetyPipeline(config)

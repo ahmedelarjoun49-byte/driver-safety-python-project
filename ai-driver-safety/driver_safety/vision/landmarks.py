@@ -42,26 +42,72 @@ class HaarFaceDetector:
     provider = "haar"
 
     def __init__(self, cascade_path: Path | None = None) -> None:
-        if cascade_path is None:
-            cascade_path = Path("legacy/haar-cascade-files/haarcascade_frontalface_default.xml")
-        self.cascade_path = cascade_path
-        self.classifier = cv2.CascadeClassifier(str(cascade_path))
-        if self.classifier.empty():
-            raise ModelNotAvailableError(f"Cannot load Haar cascade: {cascade_path}")
+        # Base paths layout resolution
+        base_dir = Path(__file__).parents[1] if "__file__" in locals() else Path(".")
+        legacy_dir = None
+        
+        possible_dirs = [
+            Path("ai-driver-safety/legacy/haar-cascade-files"),
+            Path("legacy/haar-cascade-files"),
+            base_dir / "legacy/haar-cascade-files"
+        ]
+        
+        for d in possible_dirs:
+            if d.resolve().absolute().exists():
+                legacy_dir = d.resolve().absolute()
+                break
+                
+        if legacy_dir is None:
+            legacy_dir = possible_dirs[0].resolve().absolute()
+
+        # Load main face classifier
+        self.face_classifier = cv2.CascadeClassifier(str(legacy_dir / "haarcascade_frontalface_default.xml"))
+        
+        # Load secondary feature classifiers for dynamic tracking states
+        self.left_eye_classifier = cv2.CascadeClassifier(str(legacy_dir / "haarcascade_lefteye_2splits.xml"))
+        self.right_eye_classifier = cv2.CascadeClassifier(str(legacy_dir / "haarcascade_righteye_2splits.xml"))
+        self.smile_classifier = cv2.CascadeClassifier(str(legacy_dir / "haarcascade_smile.xml"))
+
+        if self.face_classifier.empty():
+            raise ModelNotAvailableError(f"Cannot load core Haar cascade files from layout location: {legacy_dir}")
 
     def detect(self, packet: FramePacket) -> list[FaceObservation]:
         frame = packet.frame
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.classifier.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+        faces = self.face_classifier.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5)
+        
         observations: list[FaceObservation] = []
         for x, y, w, h in faces[:1]:
+            # ROI (Region of Interest) targeting top/bottom segments of detected facial bounds
+            face_gray = gray[y:y+h, x:x+w]
+            
+            # Sub-divide regions for specialized eye tracking zones to eliminate false positives
+            eye_region_h = int(h * 0.55)
+            left_eye_zone = face_gray[0:eye_region_h, 0:int(w * 0.5)]
+            right_eye_zone = face_gray[0:eye_region_h, int(w * 0.5):w]
+            mouth_zone = face_gray[int(h * 0.55):h, 0:w]
+            
+            # Detect true open states dynamically based on raw cascade matching hits
+            left_eyes = self.left_eye_classifier.detectMultiScale(left_eye_zone, scaleFactor=1.1, minNeighbors=3)
+            right_eyes = self.right_eye_classifier.detectMultiScale(right_eye_zone, scaleFactor=1.1, minNeighbors=3)
+            smiles = self.smile_classifier.detectMultiScale(mouth_zone, scaleFactor=1.15, minNeighbors=6)
+            
+            # Determine dynamic state tracking flags 
+            left_eye_open = len(left_eyes) > 0
+            right_eye_open = len(right_eyes) > 0
+            mouth_yawning = len(smiles) > 0
+
             cx = int(x + w / 2)
             cy = int(y + h / 2)
+            
             observations.append(
                 FaceObservation(
                     bbox=(int(x), int(y), int(w), int(h)),
                     landmarks=_approximate_face_landmarks(
-                        cx, cy, eye_open=True, mouth_open=False, scale=w / 150
+                        cx, cy, 
+                        eye_open=(left_eye_open or right_eye_open), 
+                        mouth_open=mouth_yawning, 
+                        scale=w / 150
                     ),
                     provider=self.provider,
                     confidence=0.65,
@@ -75,18 +121,13 @@ class MediaPipeFaceLandmarker:
 
     def __init__(self, model_path: Path) -> None:
         if not model_path.exists():
-            raise ModelNotAvailableError(
-                f"MediaPipe face landmarker model is missing: {model_path}. "
-                "Run `python scripts/download_models.py --mediapipe-face` or set vision.provider=auto."
-            )
+            raise ModelNotAvailableError(f"MediaPipe face landmarker model missing: {model_path}")
         try:
             import mediapipe as mp
             from mediapipe.tasks import python
             from mediapipe.tasks.python import vision
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise ModelNotAvailableError(
-                "MediaPipe is not installed. Install with `pip install ai-driver-safety[vision]`."
-            ) from exc
+        except Exception as exc:
+            raise ModelNotAvailableError("MediaPipe is not installed.") from exc
 
         self._mp = mp
         options = vision.FaceLandmarkerOptions(
@@ -149,13 +190,15 @@ def _approximate_face_landmarks(
     scale: float = 1.0,
 ) -> dict[str, list[Point]]:
     eye_half_w = 22 * scale
-    eye_v = (8 if eye_open else 1.2) * scale
+    eye_v = (8 if eye_open else 1.5) * scale
     mouth_half_w = 34 * scale
-    mouth_v = (24 if mouth_open else 6) * scale
+    mouth_v = (26 if mouth_open else 5) * scale
+    
     left_eye_cx = cx - int(38 * scale)
     right_eye_cx = cx + int(38 * scale)
     eye_y = cy - int(32 * scale)
     mouth_y = cy + int(48 * scale)
+    
     return {
         "left_eye": _eye_points(left_eye_cx, eye_y, eye_half_w, eye_v),
         "right_eye": _eye_points(right_eye_cx, eye_y, eye_half_w, eye_v),

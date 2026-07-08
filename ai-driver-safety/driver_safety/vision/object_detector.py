@@ -57,18 +57,45 @@ class OnnxObjectDetector:
     ) -> None:
         try:
             import onnxruntime as ort
-        except Exception as exc:  # pragma: no cover - optional dependency
+        except Exception as exc:
             raise RuntimeError(
-                "ONNX Runtime is not installed. Install with `pip install ai-driver-safety[onnx]`."
+                "ONNX Runtime is not installed. Install with `pip install onnxruntime`."
             ) from exc
-        if not model_path.exists():
-            raise FileNotFoundError(f"ONNX model not found: {model_path}")
+
+        # Look directly for the files where your python command executes from
+        workspace_root = Path.cwd()
+        resolved_model = workspace_root / "models" / "driver-objects.onnx"
+        resolved_labels = workspace_root / "models" / "driver-objects.labels"
+
+        # Hardcoded fallback labels list if the .labels file isn't found on disk
+        if resolved_labels.exists():
+            self.labels = [line.strip() for line in resolved_labels.read_text(encoding="utf-8").splitlines() if line.strip()]
+        else:
+            # Common COCO/YOLO labels fallback containing phone target definitions
+            self.labels = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", 
+                           "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", 
+                           "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", 
+                           "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", 
+                           "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", 
+                           "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", 
+                           "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", 
+                           "chair", "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", 
+                           "mouse", "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", 
+                           "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"]
+
+        if not resolved_model.exists():
+            raise FileNotFoundError(
+                f"\n\n[ERROR] Missing Model File!\n"
+                f"Please make sure your trained file 'driver-objects.onnx' is located in:\n"
+                f"-> {resolved_model.absolute()}\n"
+            )
+
         self.input_size = input_size
         self.confidence_threshold = confidence_threshold
         self.iou_threshold = iou_threshold
-        self.labels = _load_labels(labels_path)
+        
         self.session = ort.InferenceSession(
-            str(model_path), providers=ort.get_available_providers()
+            str(resolved_model), providers=ort.get_available_providers()
         )
         model_input = self.session.get_inputs()[0]
         self.input_name = model_input.name
@@ -95,22 +122,19 @@ class OnnxObjectDetector:
 
 def create_object_detector(config: DriverSafetyConfig) -> ObjectDetector:
     obj_config = config.object_detector
-    if not obj_config.enabled or obj_config.provider == "none":
-        return NoopObjectDetector()
-    if obj_config.provider == "onnx":
+    # Force initialization if user explicitly specifies onnx parameters in config
+    if obj_config.provider == "onnx" or (hasattr(obj_config, 'model_path') and "onnx" in str(obj_config.model_path)):
         return OnnxObjectDetector(
             Path(obj_config.model_path),
             Path(obj_config.labels_path),
             confidence_threshold=obj_config.confidence_threshold,
             iou_threshold=obj_config.iou_threshold,
         )
+    
+    if not obj_config.enabled or obj_config.provider == "none":
+        return NoopObjectDetector()
+        
     raise ValueError(f"Unsupported object detector provider: {obj_config.provider}")
-
-
-def _load_labels(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _letterbox(frame: Array, size: int) -> Array:

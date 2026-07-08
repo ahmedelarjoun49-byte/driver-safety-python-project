@@ -11,22 +11,18 @@ thresholds:
   yawn_frames: 6
   distracted_frames: 12
 vision:
-  provider: auto
-  face_landmarker_model: models/face_landmarker.task
-  fallback_to_haar: true
+  provider: "mediapipe"
+  face_landmarker_model: "models/face_landmarker.task"
+  fallback_to_haar: false
   process_every_n_frames: 1
   draw_landmarks: true
 object_detector:
-  enabled: false
-  provider: none
-  model_path: models/driver-objects.onnx
-  labels_path: models/driver-objects.labels
+  enabled: true
+  provider: "onnx"  # <--- MUST be exactly "onnx" in lowercase letters
+  model_path: "models/driver-objects.onnx"
+  labels_path: "models/driver-objects.labels"
   confidence_threshold: 0.25
   iou_threshold: 0.45
-  phone_labels:
-    - cell phone
-    - phone
-    - mobile
 runtime:
   output_fps: null
   max_frames: null
